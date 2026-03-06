@@ -1,16 +1,19 @@
 """
-alerts.py - Telegram Alert System for MIOS
+alerts.py - WhatsApp Alert System for MIOS
 
-Formats and sends trade alerts to a Telegram chat / channel via the
-Bot API.  No third-party Telegram library is required — we use plain
+Formats and sends trade alerts to a WhatsApp number via the Twilio
+Messaging API.  No third-party Twilio SDK is required — we use plain
 `requests` HTTP calls so the dependency footprint stays minimal.
 
 Setup
 -----
-1. Create a bot via @BotFather and copy the token.
-2. Add the bot to your channel / group.
-3. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the .env file
-   (or as environment variables).
+1. Sign up at https://www.twilio.com and create a project.
+2. Enable the WhatsApp sandbox (or use a verified WhatsApp Business number).
+3. Set the four env vars below in the .env file:
+   TWILIO_ACCOUNT_SID   — from the Twilio Console dashboard
+   TWILIO_AUTH_TOKEN    — from the Twilio Console dashboard
+   WHATSAPP_FROM        — your Twilio WhatsApp number, e.g. +14155238886
+   WHATSAPP_TO          — the recipient number, e.g. +919876543210
 
 Alert types
 -----------
@@ -25,14 +28,15 @@ import os
 from typing import Optional
 
 import requests
+from requests.auth import HTTPBasicAuth
 
 from mios.risk_manager import TradeSetup
 from mios.data_fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
 
-# ── Telegram API base URL ─────────────────────────────────────────────────────
-TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
+# ── Twilio API endpoint ───────────────────────────────────────────────────────
+TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
 
 # ── Emoji shortcuts for message decoration ────────────────────────────────────
 BULL = "🐂"
@@ -47,74 +51,87 @@ ROCKET = "🚀"
 STOP = "🛑"
 
 
-class TelegramAlerter:
+class WhatsAppAlerter:
     """
-    Sends formatted Markdown messages to a Telegram chat via the Bot API.
+    Sends formatted messages to a WhatsApp number via the Twilio API.
 
     All methods return True on success, False on failure (errors are logged
-    but never raised, so a Telegram outage cannot crash the scanner).
+    but never raised, so a Twilio outage cannot crash the scanner).
+
+    WhatsApp supports *bold*, _italic_, and `monospace` natively, so the
+    existing Markdown-style formatting renders correctly in the app.
     """
 
     def __init__(
         self,
-        bot_token: Optional[str] = None,
-        chat_id: Optional[str] = None,
+        account_sid: Optional[str] = None,
+        auth_token: Optional[str] = None,
+        from_number: Optional[str] = None,
+        to_number: Optional[str] = None,
         min_quality_score: int = 70,
     ):
         """
         Args:
-            bot_token        : Telegram bot token (falls back to env var
-                               TELEGRAM_BOT_TOKEN if not provided).
-            chat_id          : Target chat / channel ID (falls back to env var
-                               TELEGRAM_CHAT_ID if not provided).
+            account_sid      : Twilio Account SID (falls back to TWILIO_ACCOUNT_SID).
+            auth_token       : Twilio Auth Token (falls back to TWILIO_AUTH_TOKEN).
+            from_number      : WhatsApp-enabled Twilio number, e.g. +14155238886
+                               (falls back to WHATSAPP_FROM).
+            to_number        : Recipient WhatsApp number, e.g. +919876543210
+                               (falls back to WHATSAPP_TO).
             min_quality_score: Setups below this score are not alerted.
         """
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
-        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
+        self.account_sid = account_sid or os.getenv("TWILIO_ACCOUNT_SID", "")
+        self.auth_token = auth_token or os.getenv("TWILIO_AUTH_TOKEN", "")
+        self.from_number = from_number or os.getenv("WHATSAPP_FROM", "")
+        self.to_number = to_number or os.getenv("WHATSAPP_TO", "")
         self.min_quality_score = min_quality_score
 
-        if not self.bot_token or not self.chat_id:
+        if not all([self.account_sid, self.auth_token, self.from_number, self.to_number]):
             logger.warning(
-                "Telegram credentials not set — alerts will be printed to stdout only."
+                "WhatsApp/Twilio credentials not set — alerts will be printed to stdout only."
             )
 
     # ── Low-level send ────────────────────────────────────────────────────────
 
     def _send(self, text: str) -> bool:
         """
-        Internal helper: POST a message to the Telegram sendMessage endpoint.
+        Internal helper: POST a message via the Twilio Messages API.
 
-        Uses MarkdownV2 parse mode. Returns True if the request succeeds.
+        Returns True if the request succeeds (HTTP 201 Created).
         """
-        if not self.bot_token or not self.chat_id:
+        if not all([self.account_sid, self.auth_token, self.from_number, self.to_number]):
             # Fallback: print to stdout so we can still see alerts locally
             print("\n" + "=" * 60)
             print(text)
             print("=" * 60 + "\n")
             return True
 
-        url = TELEGRAM_API.format(token=self.bot_token, method="sendMessage")
+        url = TWILIO_API.format(account_sid=self.account_sid)
         payload = {
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": "Markdown",   # simpler than MarkdownV2
-            "disable_web_page_preview": True,
+            "From": f"whatsapp:{self.from_number}",
+            "To": f"whatsapp:{self.to_number}",
+            "Body": text,
         }
 
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(
+                url,
+                data=payload,
+                auth=HTTPBasicAuth(self.account_sid, self.auth_token),
+                timeout=10,
+            )
             resp.raise_for_status()
-            logger.debug("Telegram message sent (chat=%s)", self.chat_id)
+            logger.debug("WhatsApp message sent (to=%s)", self.to_number)
             return True
         except requests.RequestException as exc:
-            logger.error("Failed to send Telegram alert: %s", exc)
+            logger.error("Failed to send WhatsApp alert: %s", exc)
             return False
 
     # ── Message formatters ────────────────────────────────────────────────────
 
     def _format_trade_alert(self, setup: TradeSetup) -> str:
         """
-        Build a rich Markdown trade alert message.
+        Build a rich trade alert message.
 
         Example output:
         ┌─────────────────────────────────────────┐

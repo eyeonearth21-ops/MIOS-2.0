@@ -11,9 +11,9 @@ DataFetcher ──► Scanner ──► [Signal, ...]
                                │
                       [TradeSetup (valid/rejected)]
                                │
-                         TelegramAlerter
+                         WhatsAppAlerter
                                │
-                     Telegram channel / stdout
+                      WhatsApp number / stdout
 
 Scheduled jobs
 ──────────────
@@ -49,7 +49,7 @@ load_dotenv()
 from mios.data_fetcher import DataFetcher, NIFTY50_TICKERS
 from mios.scanner import Scanner
 from mios.risk_manager import RiskManager
-from mios.alerts import TelegramAlerter
+from mios.alerts import WhatsAppAlerter
 from mios.scheduler import MIOSScheduler
 
 # ── Logging configuration ────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ risk_manager = RiskManager(
     max_sl_pct=float(os.getenv("RISK_MAX_SL_PCT", 0.03)),
     t2_rr_multiple=float(os.getenv("RISK_T2_RR_MULTIPLE", 2.0)),
 )
-alerter = TelegramAlerter(
+alerter = WhatsAppAlerter(
     min_quality_score=int(os.getenv("ALERT_MIN_SCORE", 70)),
 )
 
