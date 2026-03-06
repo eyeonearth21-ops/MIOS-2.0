@@ -11,9 +11,9 @@ DataFetcher ──► Scanner ──► [Signal, ...]
                                │
                       [TradeSetup (valid/rejected)]
                                │
-                         WhatsAppAlerter
+                         GmailAlerter
                                │
-                      WhatsApp number / stdout
+                      Email (Gmail / SMTP) / stdout
 
 Scheduled jobs
 ──────────────
@@ -49,7 +49,7 @@ load_dotenv()
 from mios.data_fetcher import DataFetcher, NIFTY50_TICKERS
 from mios.scanner import Scanner
 from mios.risk_manager import RiskManager
-from mios.alerts import WhatsAppAlerter
+from mios.email_alerts import GmailAlerter
 from mios.scheduler import MIOSScheduler
 
 # ── Logging configuration ────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ risk_manager = RiskManager(
     max_sl_pct=float(os.getenv("RISK_MAX_SL_PCT", 0.03)),
     t2_rr_multiple=float(os.getenv("RISK_T2_RR_MULTIPLE", 2.0)),
 )
-alerter = WhatsAppAlerter(
+alerter = GmailAlerter(
     min_quality_score=int(os.getenv("ALERT_MIN_SCORE", 70)),
 )
 
@@ -110,7 +110,7 @@ def _run_scan_pipeline(session_label: str) -> int:
         session_label, len(signals), len(approved), len(rejected),
     )
 
-    # 3. Send Telegram alerts for approved setups
+    # 3. Send email alerts for approved setups
     alerter.send_bulk_alerts(approved)
 
     return len(approved)

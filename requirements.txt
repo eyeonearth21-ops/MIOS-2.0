@@ -12,9 +12,6 @@ yfinance>=0.2.40
 pandas>=2.1.0
 numpy>=1.26.0
 
-# HTTP client (Telegram Bot API calls)
-requests>=2.31.0
-
 # In-process job scheduler
 schedule>=1.2.1
 
