@@ -63,17 +63,15 @@ gcloud artifacts repositories create "${AR_REPO}" \
   --location="${REGION}" \
   --project="${PROJECT_ID}" 2>/dev/null || echo "  (already exists — skipping)"
 
-echo "▶ Granting Cloud Build SA push access …"
-CLOUDBUILD_SA="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')@cloudbuild.gserviceaccount.com"
-gcloud artifacts repositories add-iam-policy-binding "${AR_REPO}" \
-  --location="${REGION}" \
-  --project="${PROJECT_ID}" \
-  --member="serviceAccount:${CLOUDBUILD_SA}" \
-  --role="roles/artifactregistry.writer" --quiet
+# ── Build & push Docker image (local Docker — no Cloud Build SA needed) ───────
+echo "▶ Configuring Docker auth for Artifact Registry …"
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-# ── Build & push Docker image ─────────────────────────────────────────────────
-echo "▶ Building and pushing Docker image …"
-gcloud builds submit --tag "${IMAGE}" --project="${PROJECT_ID}" .
+echo "▶ Building Docker image locally …"
+docker build -t "${IMAGE}" .
+
+echo "▶ Pushing image to Artifact Registry …"
+docker push "${IMAGE}"
 
 # ── Store secrets in Secret Manager ──────────────────────────────────────────
 echo "▶ Storing secrets in Secret Manager …"
