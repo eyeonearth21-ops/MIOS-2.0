@@ -20,3 +20,6 @@ pytz>=2024.1
 
 # Environment variable management (.env file support)
 python-dotenv>=1.0.0
+
+# Web UI (Streamlit app)
+streamlit>=1.35.0
