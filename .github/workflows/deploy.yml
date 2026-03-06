@@ -1,0 +1,54 @@
+name: Deploy to Google Cloud Run
+
+# Trigger on every push to main
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-south1            # Mumbai — change if preferred
+  JOB_NAME: mios
+  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/mios
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write            # needed for Workload Identity auth
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Authenticate to GCP (Workload Identity — no long-lived key) ─────────
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # ── Set up gcloud ────────────────────────────────────────────────────────
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # ── Build & push image via Cloud Build ──────────────────────────────────
+      - name: Build and push Docker image
+        run: |
+          gcloud builds submit \
+            --tag "$IMAGE" \
+            --project "$PROJECT_ID" \
+            .
+
+      # ── Update the Cloud Run Job with the new image ──────────────────────────
+      - name: Update Cloud Run Job
+        run: |
+          gcloud run jobs update "$JOB_NAME" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --project "$PROJECT_ID"
+
+      - name: Done
+        run: echo "✅ MIOS deployed — new image live on Cloud Run Job '$JOB_NAME'"
