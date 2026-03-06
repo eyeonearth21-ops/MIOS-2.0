@@ -35,9 +35,12 @@ import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from mios.risk_manager import TradeSetup
+
+if TYPE_CHECKING:
+    from mios.earnings_analyzer import EarningsSignal
 
 logger = logging.getLogger(__name__)
 
@@ -349,6 +352,73 @@ class GmailAlerter:
             f"<pre style='background:#f8d7da;padding:12px;border-radius:4px'>{error_msg}</pre>",
         )
         return self._send(subject, body)
+
+    def send_earnings_alerts(self, signals: "list[EarningsSignal]") -> bool:
+        """
+        Send a single email summarising all upcoming earnings momentum setups.
+
+        Each signal block shows: result date, entry, SL, targets, probability,
+        R:R ratio, and the historical reasoning bullets.
+
+        Args:
+            signals: EarningsSignal list from EarningsAnalyzer.scan().
+        Returns:
+            True if the email was sent (or printed) successfully.
+        """
+        if not signals:
+            return False
+
+        def _signal_block(sig: "EarningsSignal") -> str:
+            sl_pct = ((sig.stop_loss - sig.entry) / sig.entry) * 100
+            t1_pct = ((sig.target1 - sig.entry) / sig.entry) * 100
+            t2_pct = ((sig.target2 - sig.entry) / sig.entry) * 100
+            note_items = "".join(f"<li>{n}</li>" for n in sig.notes)
+            return f"""
+    <div style="margin-bottom:20px;padding:16px;background:#f8f9fa;border-radius:6px;
+                border-left:4px solid #2196F3;">
+      <strong style="font-size:15px;color:#1a1a2e;">{sig.ticker}</strong>
+      &nbsp;<span style="background:#d0e8ff;color:#0d47a1;padding:2px 8px;
+                         border-radius:10px;font-size:12px;">EARNINGS MOMENTUM</span>
+      <table style="width:100%;border-collapse:collapse;margin:10px 0;">
+        <tr><td style="color:#555;padding:4px 0;width:45%">Result Date</td>
+            <td style="font-weight:bold;color:#1a1a2e;">{sig.next_result_date}
+                &nbsp;({sig.days_to_result}d away)</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Entry</td>
+            <td style="font-weight:bold;">&#8377;{sig.entry:,.2f}</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Stop Loss</td>
+            <td style="font-weight:bold;color:#721c24;">&#8377;{sig.stop_loss:,.2f}
+                &nbsp;({sl_pct:+.1f}%)</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Target 1</td>
+            <td style="font-weight:bold;color:#155724;">&#8377;{sig.target1:,.2f}
+                &nbsp;({t1_pct:+.1f}%)</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Target 2</td>
+            <td style="font-weight:bold;color:#155724;">&#8377;{sig.target2:,.2f}
+                &nbsp;({t2_pct:+.1f}%)</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Risk : Reward</td>
+            <td style="font-weight:bold;">1 : {sig.rr_ratio:.1f}</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Historical Probability</td>
+            <td style="font-weight:bold;">{int(sig.historical_probability * 100)}%
+                &nbsp;({sig.quarters_analyzed} quarters)</td></tr>
+        <tr><td style="color:#555;padding:4px 0">Signal Score</td>
+            <td style="font-weight:bold;">{sig.quality_score} / 100</td></tr>
+      </table>
+      <ul style="margin:4px 0;padding-left:18px;color:#333;font-size:13px;">
+        {note_items}
+      </ul>
+    </div>"""
+
+        blocks = "".join(_signal_block(s) for s in signals)
+        count = len(signals)
+        content = f"""
+    <p style="color:#555;">{count} stock{'s' if count != 1 else ''} with
+    upcoming results and high historical rally probability:</p>
+    {blocks}"""
+
+        subject = (
+            f"MIOS Earnings Momentum | {count} Setup{'s' if count != 1 else ''} "
+            f"| {datetime.now().strftime('%Y-%m-%d')}"
+        )
+        return self._send(subject, self._html_wrap("MIOS Earnings Momentum Setups", content))
 
     def send_startup_message(self) -> bool:
         """Send a startup confirmation email when MIOS boots."""

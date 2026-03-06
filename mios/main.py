@@ -50,6 +50,7 @@ from mios.data_fetcher import DataFetcher, NIFTY50_TICKERS
 from mios.scanner import Scanner
 from mios.risk_manager import RiskManager
 from mios.email_alerts import GmailAlerter
+from mios.earnings_analyzer import EarningsAnalyzer
 from mios.scheduler import MIOSScheduler
 
 # ── Logging configuration ────────────────────────────────────────────────────
@@ -82,6 +83,10 @@ risk_manager = RiskManager(
 )
 alerter = GmailAlerter(
     min_quality_score=int(os.getenv("ALERT_MIN_SCORE", 70)),
+)
+earnings_analyzer = EarningsAnalyzer(
+    days_ahead=int(os.getenv("EARNINGS_DAYS_AHEAD", 7)),
+    min_probability=float(os.getenv("EARNINGS_MIN_PROB", 0.65)),
 )
 
 
@@ -149,6 +154,20 @@ def pre_market_job() -> None:
     except Exception as exc:
         logger.error("pre_market_job failed: %s", exc, exc_info=True)
         alerter.send_error_alert(f"pre_market_job error: {exc}")
+
+    # Earnings Momentum scan — separate alert if any signals found
+    try:
+        earnings_signals = earnings_analyzer.scan(NIFTY50_TICKERS)
+        if earnings_signals:
+            alerter.send_earnings_alerts(earnings_signals)
+            logger.info(
+                "Earnings alert sent — %d setup(s) with upcoming results.",
+                len(earnings_signals),
+            )
+        else:
+            logger.info("No earnings momentum setups for the next %d days.", earnings_analyzer.days_ahead)
+    except Exception as exc:
+        logger.error("earnings scan failed: %s", exc, exc_info=True)
 
 
 def opening_scan_job() -> None:
@@ -225,14 +244,15 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m mios.main                   # Start scheduled daemon
-  python -m mios.main --run pre_market  # Run pre-market job now
-  python -m mios.main --test            # Run all jobs once and exit
+  python -m mios.main                      # Start scheduled daemon
+  python -m mios.main --run pre_market     # Run pre-market job now
+  python -m mios.main --run earnings_scan  # Run earnings momentum scan now
+  python -m mios.main --test               # Run all jobs once and exit
         """,
     )
     parser.add_argument(
         "--run",
-        choices=["pre_market", "opening_scan", "midday_scan", "closing_report"],
+        choices=["pre_market", "opening_scan", "midday_scan", "closing_report", "earnings_scan"],
         help="Run a specific job immediately and exit.",
     )
     parser.add_argument(
@@ -267,14 +287,28 @@ def main() -> None:
         risk_manager.max_sl_pct * 100,
         risk_manager.min_reward_ratio,
     )
+    logger.info(
+        "Earnings settings  : days_ahead=%d, min_prob=%.0f%%",
+        earnings_analyzer.days_ahead,
+        earnings_analyzer.min_probability * 100,
+    )
 
     # ── Immediate single-job run ──────────────────────────────────────────────
     if args.run:
+        def _earnings_scan_job() -> None:
+            logger.info("═══ EARNINGS SCAN ═══")
+            signals = earnings_analyzer.scan(NIFTY50_TICKERS)
+            if signals:
+                alerter.send_earnings_alerts(signals)
+            else:
+                logger.info("No earnings momentum setups found.")
+
         job_map = {
             "pre_market":    pre_market_job,
             "opening_scan":  opening_scan_job,
             "midday_scan":   midday_scan_job,
             "closing_report":closing_report_job,
+            "earnings_scan": _earnings_scan_job,
         }
         logger.info("Running job '%s' immediately …", args.run)
         job_map[args.run]()
