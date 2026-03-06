@@ -21,7 +21,8 @@ set -euo pipefail
 # ── Configuration — edit these ────────────────────────────────────────────────
 PROJECT_ID="${GCP_PROJECT_ID:-your-gcp-project-id}"   # gcloud projects list
 REGION="${GCP_REGION:-asia-south1}"                    # Mumbai — closest to NSE
-IMAGE="gcr.io/${PROJECT_ID}/mios"
+AR_REPO="mios"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/mios"
 JOB_NAME="mios"
 SA_NAME="mios-runner"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -54,6 +55,21 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/run.invoker" --quiet
+
+# ── Artifact Registry repo ────────────────────────────────────────────────────
+echo "▶ Creating Artifact Registry repo '${AR_REPO}' (skipped if exists) …"
+gcloud artifacts repositories create "${AR_REPO}" \
+  --repository-format=docker \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}" 2>/dev/null || echo "  (already exists — skipping)"
+
+echo "▶ Granting Cloud Build SA push access …"
+CLOUDBUILD_SA="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')@cloudbuild.gserviceaccount.com"
+gcloud artifacts repositories add-iam-policy-binding "${AR_REPO}" \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --member="serviceAccount:${CLOUDBUILD_SA}" \
+  --role="roles/artifactregistry.writer" --quiet
 
 # ── Build & push Docker image ─────────────────────────────────────────────────
 echo "▶ Building and pushing Docker image …"
