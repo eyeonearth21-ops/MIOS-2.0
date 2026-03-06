@@ -13,5 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source
 COPY mios/ ./mios/
 
-# Default: start the scheduler daemon
-CMD ["python", "-m", "mios.main"]
+# ENTRYPOINT keeps the python invocation fixed; CMD provides the default job.
+# Cloud Scheduler overrides CMD args (e.g. --run opening_scan) via
+# containerOverrides.args in the message body.
+# Running the container without args defaults to the pre-market report.
+ENTRYPOINT ["python", "-m", "mios.main"]
+CMD ["--run", "pre_market"]

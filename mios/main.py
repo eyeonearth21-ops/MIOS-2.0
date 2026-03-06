@@ -100,7 +100,13 @@ def _run_scan_pipeline(session_label: str) -> int:
 
     if not signals:
         logger.info("%s: No signals detected — nothing to evaluate.", session_label)
-        alerter._send(f"🔍 *MIOS {session_label}* — Scan complete. No signals this session.")
+        alerter._send(
+            f"MIOS {session_label} — No Signals",
+            alerter._html_wrap(
+                f"MIOS {session_label} — Scan Complete",
+                "<p>No breakout signals detected this session.</p>",
+            ),
+        )
         return 0
 
     # 2. Evaluate each signal through the risk manager
